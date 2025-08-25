@@ -12,6 +12,9 @@ import { Download, Music, Video, AlertCircle, RotateCcw } from "lucide-react"
 import { ConversionProgress } from "@/components/conversion-progress"
 import { useConversion } from "@/hooks/use-conversion"
 import Link from "next/link"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Progress } from "@/components/ui/progress"
 
 export default function HomePage() {
   const [videoUrl, setVideoUrl] = useState("")
@@ -32,6 +35,22 @@ export default function HomePage() {
     startConversion,
     resetConversion,
   } = useConversion()
+
+  // 批量模式状态
+  const [batchMode, setBatchMode] = useState(false)
+  const [batchInput, setBatchInput] = useState("")
+  type BatchTask = {
+    id: string
+    url: string
+    status: "pending" | "in-progress" | "completed" | "error"
+    progress: number
+    downloadUrl?: string
+    filename?: string
+    fileSize?: number
+    expiresAt?: string
+    error?: string
+  }
+  const [batchTasks, setBatchTasks] = useState<BatchTask[]>([])
 
   // 受支持域名判断
   const isSupportedHost = (host: string) => {
@@ -66,7 +85,23 @@ export default function HomePage() {
     return ""
   }
 
-  // 粘贴时拦截清洗内容
+  // 批量解析：分号或换行分隔，去重并仅保留受支持链接
+  const parseBatchInput = (text: string) => {
+    const parts = text
+      .split(/[;\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const urls: string[] = []
+    for (const raw of parts) {
+      const extracted = extractFirstSupportedUrl(raw) || raw
+      if (isSupportedUrl(extracted) && !urls.includes(extracted)) {
+        urls.push(extracted)
+      }
+    }
+    return urls
+  }
+
+  // 粘贴时拦截清洗内容（单个模式）
   const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
     const raw = e.clipboardData.getData("text") || ""
     const extracted = extractFirstSupportedUrl(raw)
@@ -93,11 +128,82 @@ export default function HomePage() {
     await startConversion(cleaned)
   }
 
+  // 批量处理：并发启动每个任务
+  const handleBatchConvert = async () => {
+    const urls = parseBatchInput(batchInput)
+    if (urls.length === 0) return
+
+    // 初始化任务列表
+    const initialTasks: BatchTask[] = urls.map((u, idx) => ({
+      id: `${Date.now()}-${idx}`,
+      url: u,
+      status: "pending",
+      progress: 0,
+    }))
+    setBatchTasks(initialTasks)
+
+    // 并发执行
+    initialTasks.forEach((task) => {
+      runBatchTask(task.id, task.url)
+    })
+  }
+
+  const runBatchTask = async (id: string, url: string) => {
+    // 设置为进行中
+    setBatchTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: "in-progress", progress: 15 } : t)))
+
+    try {
+      // 模拟进度
+      setBatchTasks((prev) => prev.map((t) => (t.id === id ? { ...t, progress: 35 } : t)))
+
+      const response = await fetch("/api/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      })
+
+      const contentType = response.headers.get("content-type") || ""
+      if (!contentType.includes("application/json")) {
+        const text = await response.text().catch(() => "")
+        throw new Error(text || "服务器返回了非JSON格式的响应")
+      }
+
+      const data = await response.json()
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || `转换失败(${response.status})`)
+      }
+
+      // 接近完成
+      setBatchTasks((prev) => prev.map((t) => (t.id === id ? { ...t, progress: 85 } : t)))
+
+      // 完成
+      setBatchTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                status: "completed",
+                progress: 100,
+                downloadUrl: data.downloadUrl,
+                filename: data.filename,
+                fileSize: data.fileSize,
+                expiresAt: data.expiresAt,
+              }
+            : t,
+        ),
+      )
+    } catch (err: any) {
+      const msg = err?.message || "转换过程中出现错误"
+      setBatchTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: "error", error: msg } : t)))
+    }
+  }
+
   // 保证是布尔值
   const isCompleted = overallProgress === 100 && !isConverting && !!downloadUrl
 
   useEffect(() => {
-    // 每次输入变化都先清空之前的元数据和错误
+    // 每次输入变化都先清空之前的元数据和错误（仅单个模式）
+    if (batchMode) return
     setMeta(null)
     setMetaError(null)
 
@@ -140,7 +246,7 @@ export default function HomePage() {
       controller.abort()
       clearTimeout(timer)
     }
-  }, [videoUrl])
+  }, [videoUrl, batchMode])
 
   return (
     <div className="min-h-screen bg-background">
@@ -193,8 +299,8 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Conversion Progress */}
-          {(isConverting || isCompleted || error) && (
+          {/* Conversion Progress (单个模式) */}
+          {!batchMode && (isConverting || isCompleted || error) && (
             <div className="mb-8">
               <ConversionProgress
                 steps={steps}
@@ -226,40 +332,71 @@ export default function HomePage() {
                   <Download className="h-5 w-5 text-foreground/60" />
                   开始转换
                 </CardTitle>
-                <CardDescription>粘贴 Bilibili 视频链接，点击转换按钮即可获得 MP3 文件</CardDescription>
+                <CardDescription>粘贴 Bilibili 视频链接（支持单个或批量，批量以分号分隔）</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid gap-6 md:grid-cols-2">
                   <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label htmlFor="video-url" className="text-sm font-medium text-foreground">
-                        视频链接
-                      </label>
-                      <Input
-                        id="video-url"
-                        type="url"
-                        placeholder="https://www.bilibili.com/video/BV... 或 https://b23.tv/..."
-                        value={videoUrl}
-                        onPaste={handlePaste}
-                        onChange={(e) => {
-                          const text = e.target.value
-                          const extracted = extractFirstSupportedUrl(text)
-                          setVideoUrl(extracted || text)
-                        }}
-                        className="w-full"
-                      />
+                    {/* 模式切换 */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-foreground">输入模式</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-foreground/70">单个</span>
+                        <Switch checked={batchMode} onCheckedChange={setBatchMode} />
+                        <span className="text-sm text-foreground/70">批量</span>
+                      </div>
                     </div>
+
+                    {/* 输入区 */}
+                    {batchMode ? (
+                      <div className="space-y-2">
+                        <label htmlFor="batch-input" className="text-sm font-medium text-foreground">
+                          批量链接（以分号分隔）
+                        </label>
+                        <Textarea
+                          id="batch-input"
+                          placeholder="https://www.bilibili.com/video/BV...; https://b23.tv/...; https://m.bilibili.com/video/BV..."
+                          value={batchInput}
+                          onChange={(e) => setBatchInput(e.target.value)}
+                          className="w-full max-w-full break-all whitespace-pre-wrap resize-y overflow-x-hidden"
+                          rows={6}
+                        />
+                        <p className="text-xs text-foreground/60">有效链接：{parseBatchInput(batchInput).length} 个</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <label htmlFor="video-url" className="text-sm font-medium text-foreground">
+                          视频链接
+                        </label>
+                        <Input
+                          id="video-url"
+                          type="url"
+                          placeholder="https://www.bilibili.com/video/BV... 或 https://b23.tv/..."
+                          value={videoUrl}
+                          onPaste={handlePaste}
+                          onChange={(e) => {
+                            const text = e.target.value
+                            const extracted = extractFirstSupportedUrl(text)
+                            setVideoUrl(extracted || text)
+                          }}
+                          className="w-full"
+                        />
+                      </div>
+                    )}
+
+                    {/* 操作按钮 */}
                     <Button
-                      onClick={handleConvert}
-                      disabled={!isSupportedUrl(videoUrl)}
+                      onClick={batchMode ? handleBatchConvert : handleConvert}
+                      disabled={batchMode ? parseBatchInput(batchInput).length === 0 : !isSupportedUrl(videoUrl)}
                       size="lg"
                       className="w-full"
                     >
                       <Music className="h-4 w-4 mr-2" />
-                      转换为 MP3
+                      {batchMode ? `开始批量转换 (${parseBatchInput(batchInput).length})` : "转换为 MP3"}
                     </Button>
                   </div>
 
+                  {/* 右侧预览（单个模式可用） */}
                   <div>
                     <Card className="bg-muted/30">
                       <CardHeader>
@@ -267,15 +404,15 @@ export default function HomePage() {
                         <CardDescription>根据链接自动获取</CardDescription>
                       </CardHeader>
                       <CardContent>
-                        {!isSupportedUrl(videoUrl) ? (
+                        {!batchMode && !isSupportedUrl(videoUrl) ? (
                           <div className="text-sm text-foreground/70">粘贴一个有效的 B 站链接以预览</div>
-                        ) : metaLoading ? (
+                        ) : !batchMode && metaLoading ? (
                           <div className="space-y-3">
                             <Skeleton className="h-24 w-full rounded" />
                             <Skeleton className="h-4 w-2/3" />
                             <Skeleton className="h-3 w-1/3" />
                           </div>
-                        ) : meta ? (
+                        ) : !batchMode && meta ? (
                           <div className="flex gap-3 items-start">
                             <div className="w-40">
                               <AspectRatio ratio={16 / 9}>
@@ -288,16 +425,61 @@ export default function HomePage() {
                               <div className="text-sm font-medium text-foreground break-words">{meta.title}</div>
                             </div>
                           </div>
-                        ) : metaError ? (
+                        ) : !batchMode && metaError ? (
                           <Alert variant="destructive">
                             <AlertDescription>{metaError}</AlertDescription>
                           </Alert>
                         ) : (
-                          <div className="text-sm text-foreground/70">检测到有效链接，正在准备预览</div>
+                          <div className="text-sm text-foreground/70">{batchMode ? "批量模式下不提供预览" : "检测到有效链接，正在准备预览"}</div>
                         )}
                       </CardContent>
                     </Card>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 批量结果列表 */}
+          {batchMode && batchTasks.length > 0 && (
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle>批量结果</CardTitle>
+                <CardDescription>并行处理多个链接，完成后可直接下载</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {batchTasks.map((task) => (
+                  <div key={task.id} className="rounded-md border border-border p-3 flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate" title={task.url}>{task.url}</div>
+                      <div className="text-xs text-foreground/60">
+                        {task.status === "in-progress"
+                          ? "处理中…"
+                          : task.status === "completed"
+                          ? "已完成"
+                          : task.status === "error"
+                          ? `错误：${task.error || ""}`
+                          : "等待中"}
+                      </div>
+                      <div className="mt-2">
+                        <Progress value={task.progress} className="h-1" />
+                      </div>
+                    </div>
+                    {task.status === "completed" && task.downloadUrl && (
+                      <a
+                        href={task.downloadUrl}
+                        download
+                        className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-2 rounded-md text-sm hover:bg-primary/90"
+                      >
+                        <Download className="h-4 w-4" /> 下载 MP3
+                      </a>
+                    )}
+                  </div>
+                ))}
+                <div className="pt-2 flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setBatchTasks([])}>
+                    清空列表
+                  </Button>
                 </div>
               </CardContent>
             </Card>
