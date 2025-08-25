@@ -72,7 +72,7 @@ export function ConversionProgress({
 
         {/* 步骤列表 */}
         <div className="space-y-3">
-          {steps.map((step, index) => (
+          {steps.map((step) => (
             <div key={step.id} className="flex items-center gap-3">
               <div className="flex-shrink-0">
                 {step.status === "completed" ? (
@@ -100,20 +100,20 @@ export function ConversionProgress({
                       step.status === "completed"
                         ? "default"
                         : step.status === "in-progress"
-                          ? "secondary"
-                          : step.status === "error"
-                            ? "destructive"
-                            : "outline"
+                        ? "secondary"
+                        : step.status === "error"
+                        ? "destructive"
+                        : "outline"
                     }
                     className="text-xs"
                   >
                     {step.status === "completed"
                       ? "完成"
                       : step.status === "in-progress"
-                        ? "进行中"
-                        : step.status === "error"
-                          ? "错误"
-                          : "等待中"}
+                      ? "进行中"
+                      : step.status === "error"
+                      ? "错误"
+                      : "等待中"}
                   </Badge>
                 </div>
 
@@ -132,10 +132,10 @@ export function ConversionProgress({
         {/* 文件信息和下载 */}
         {isCompleted && downloadUrl && (
           <div className="border-t pt-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1 min-w-0">
                 <p className="text-sm font-medium">文件已准备就绪</p>
-                {fileName && <p className="text-xs text-muted-foreground">文件名: {fileName}</p>}
+                {fileName && <p className="text-xs text-muted-foreground truncate">文件名: {fileName}</p>}
                 {fileSize && <p className="text-xs text-muted-foreground">大小: {formatFileSize(fileSize)}</p>}
                 {expiresAt && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -147,7 +147,7 @@ export function ConversionProgress({
               <a
                 href={downloadUrl}
                 download
-                className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:bg-primary/90 transition-colors"
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:bg-primary/90 transition-colors w-full md:w-auto justify-center"
               >
                 <Download className="h-4 w-4" />
                 下载 MP3

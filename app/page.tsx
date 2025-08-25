@@ -149,7 +149,7 @@ export default function HomePage() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Music className="h-7 w-7 text-muted-foreground" />
+              <Music className="h-7 w-7 text-foreground/60" />
               <h1 className="text-xl font-semibold text-foreground">Bilibili 转 MP3</h1>
             </div>
             <nav className="hidden md:flex items-center gap-2">
@@ -166,6 +166,12 @@ export default function HomePage() {
                 联系我们
               </Button>
             </nav>
+            {/* Mobile: 单独展示“我的记录”入口 */}
+            <div className="md:hidden">
+              <Button asChild size="sm" variant="outline">
+                <Link href="/records">我的记录</Link>
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -176,7 +182,7 @@ export default function HomePage() {
           {/* Hero Section */}
           <div className="text-center mb-12">
             <div className="mx-auto mb-6 h-16 w-16 rounded-xl bg-muted grid place-items-center">
-              <Video className="h-8 w-8 text-muted-foreground" />
+              <Video className="h-8 w-8 text-foreground/60" />
             </div>
             <h2 className="text-4xl font-bold text-foreground mb-3">轻松将 Bilibili 视频转换为 MP3</h2>
             <p className="text-base md:text-lg text-foreground/70">快速、简单的在线视频转音频工具</p>
@@ -203,7 +209,7 @@ export default function HomePage() {
 
               {(isCompleted || error) && (
                 <div className="mt-4 flex justify-center">
-                  <Button onClick={handleReset} variant="outline" className="gap-2">
+                  <Button onClick={handleReset} variant="outline" className="gap-2 w-full md:w-auto">
                     <RotateCcw className="h-4 w-4" />
                     转换新视频
                   </Button>
@@ -217,7 +223,7 @@ export default function HomePage() {
             <Card className="mb-8">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Download className="h-5 w-5 text-muted-foreground" />
+                  <Download className="h-5 w-5 text-foreground/60" />
                   开始转换
                 </CardTitle>
                 <CardDescription>粘贴 Bilibili 视频链接，点击转换按钮即可获得 MP3 文件</CardDescription>
