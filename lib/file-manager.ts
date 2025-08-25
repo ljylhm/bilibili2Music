@@ -1,5 +1,5 @@
-import { mkdir, unlink, stat } from "fs/promises"
-import { existsSync } from "fs"
+import { mkdir, unlink, stat, writeFile } from "fs/promises"
+import { existsSync, readFileSync } from "fs"
 import path from "path"
 import crypto from "crypto"
 
@@ -17,10 +17,13 @@ export class FileManager {
   private tempDir: string
   private fileRegistry: Map<string, FileInfo> = new Map()
   private readonly EXPIRY_TIME = 30 * 60 * 1000 // 30分钟过期
+  private registryFile!: string
 
   constructor() {
     this.tempDir = path.join(process.cwd(), "temp")
     this.ensureTempDir()
+    this.registryFile = path.join(this.tempDir, "records.json")
+    this.loadRegistrySync()
     this.startCleanupScheduler()
   }
 
@@ -35,6 +38,50 @@ export class FileManager {
   private async ensureTempDir(): Promise<void> {
     if (!existsSync(this.tempDir)) {
       await mkdir(this.tempDir, { recursive: true })
+    }
+  }
+
+  // 同步加载本地记录（如果存在）
+  private loadRegistrySync(): void {
+    try {
+      if (existsSync(this.registryFile)) {
+        const raw = readFileSync(this.registryFile, "utf-8")
+        const arr = JSON.parse(raw) as any[]
+        const now = new Date()
+        const map = new Map<string, FileInfo>()
+        for (const item of arr) {
+          const info: FileInfo = {
+            filename: String(item.filename),
+            originalUrl: String(item.originalUrl),
+            createdAt: new Date(item.createdAt),
+            expiresAt: new Date(item.expiresAt),
+            size: Number(item.size) || 0,
+          }
+          const filePath = path.join(this.tempDir, info.filename)
+          // 仅恢复仍存在且未过期的文件记录
+          if (existsSync(filePath) && info.expiresAt > now) {
+            map.set(info.filename, info)
+          }
+        }
+        this.fileRegistry = map
+        console.log(`[v0] 已从本地记录加载 ${this.fileRegistry.size} 条有效记录`)
+      }
+    } catch (e) {
+      console.error("[v0] 读取本地记录失败:", e)
+    }
+  }
+
+  // 异步持久化记录
+  private async persistRegistry(): Promise<void> {
+    try {
+      const arr = Array.from(this.fileRegistry.values()).map((info) => ({
+        ...info,
+        createdAt: info.createdAt.toISOString(),
+        expiresAt: info.expiresAt.toISOString(),
+      }))
+      await writeFile(this.registryFile, JSON.stringify(arr, null, 2), "utf-8")
+    } catch (e) {
+      console.error("[v0] 持久化记录失败:", e)
     }
   }
 
@@ -58,6 +105,7 @@ export class FileManager {
         } else {
           // 文件不存在，从注册表中移除
           this.fileRegistry.delete(filename)
+          await this.persistRegistry()
         }
       }
     }
@@ -80,6 +128,7 @@ export class FileManager {
       }
 
       this.fileRegistry.set(filename, fileInfo)
+      await this.persistRegistry()
       console.log(`[v0] 已注册文件: ${filename}, 过期时间: ${fileInfo.expiresAt}`)
     }
   }
@@ -104,6 +153,7 @@ export class FileManager {
         console.log(`[v0] 已删除文件: ${filename}`)
       }
       this.fileRegistry.delete(filename)
+      await this.persistRegistry()
     } catch (error) {
       console.error(`[v0] 删除文件失败: ${filename}`, error)
     }
@@ -124,6 +174,10 @@ export class FileManager {
 
     for (const filename of expiredFiles) {
       await this.deleteFile(filename)
+    }
+
+    if (expiredFiles.length > 0) {
+      await this.persistRegistry()
     }
   }
 
@@ -164,6 +218,10 @@ export class FileManager {
       totalSize,
       expiredFiles,
     }
+  }
+  // 新增：获取全部文件记录
+  getAllRecords(): FileInfo[] {
+    return Array.from(this.fileRegistry.values())
   }
 }
 

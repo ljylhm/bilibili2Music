@@ -4,8 +4,8 @@ import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'Bilibili 转 MP3 | 在线视频转音频工具',
+  description: '将 Bilibili 视频快速转换为 MP3，支持短链与长链，自动获取标题与封面，免费、快速、无广告。',
   generator: 'v0.app',
 }
 
@@ -15,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <head>
         <style>{`
 html {
