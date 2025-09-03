@@ -33,7 +33,7 @@ const defaultSteps: ConversionStep[] = [
     id: "download",
     name: "下载视频",
     status: "pending",
-    message: "从Bilibili服务器下载视频文件",
+    message: "从对应平台服务器下载视频文件",
   },
   {
     id: "convert",
@@ -72,8 +72,29 @@ export function useConversion() {
     setState((prev) => ({ ...prev, overallProgress: progress }))
   }, [])
 
+  const getPlatformName = useCallback((url: string) => {
+    const hostname = new URL(url).hostname.toLowerCase()
+    if (hostname.includes('bilibili.com') || hostname.includes('b23.tv')) {
+      return 'Bilibili'
+    } else if (hostname.includes('xiaohongshu.com') || hostname.includes('xhslink.com')) {
+      return '小红书'
+    } else if (hostname.includes('douyin.com') || hostname.includes('iesdouyin.com')) {
+      return '抖音'
+    } else if (hostname.includes('youtube.com') || hostname.includes('youtu.be') || hostname.includes('m.youtube.com')) {
+      return 'YouTube'
+    }
+    return '对应平台'
+  }, [])
+
   const startConversion = useCallback(
     async (videoUrl: string) => {
+      const platformName = getPlatformName(videoUrl)
+      const stepsWithPlatform = defaultSteps.map((step) => 
+        step.id === 'download' 
+          ? { ...step, message: `从${platformName}服务器下载视频文件` }
+          : step
+      )
+
       setState((prev) => ({
         ...prev,
         isConverting: true,
@@ -82,7 +103,7 @@ export function useConversion() {
         fileName: undefined,
         fileSize: undefined,
         expiresAt: undefined,
-        steps: defaultSteps.map((step) => ({ ...step, status: "pending" as const })),
+        steps: stepsWithPlatform.map((step) => ({ ...step, status: "pending" as const })),
         overallProgress: 0,
       }))
 
@@ -198,7 +219,7 @@ export function useConversion() {
         }))
       }
     },
-    [updateStep, setCurrentStep, setOverallProgress],
+    [updateStep, setCurrentStep, setOverallProgress, getPlatformName],
   )
 
   const resetConversion = useCallback(() => {

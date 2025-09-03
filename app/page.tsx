@@ -15,6 +15,10 @@ import Link from "next/link"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
+import { Header } from "@/components/header"
+import { Footer } from "@/components/footer"
+import { VideoPreview } from "@/components/video-preview"
+import { UsageInstructions } from "@/components/usage-instructions"
 
 export default function HomePage() {
   const [videoUrl, setVideoUrl] = useState("")
@@ -55,7 +59,16 @@ export default function HomePage() {
   // 受支持域名判断
   const isSupportedHost = (host: string) => {
     const h = host.toLowerCase()
-    return h === "b23.tv" || h === "bilibili.com" || h.endsWith(".bilibili.com")
+    return (
+      // Bilibili
+      h === "b23.tv" || h === "bilibili.com" || h.endsWith(".bilibili.com") ||
+      // 小红书
+      h === "xiaohongshu.com" || h.endsWith(".xiaohongshu.com") || h === "xhslink.com" ||
+      // 抖音
+      h === "douyin.com" || h.endsWith(".douyin.com") || h === "iesdouyin.com" || h.endsWith(".iesdouyin.com") || h === "v.douyin.com" ||
+      // YouTube
+      h === "youtube.com" || h.endsWith(".youtube.com") || h === "youtu.be" || h === "m.youtube.com"
+    )
   }
 
   // 是否受支持的有效 URL
@@ -250,37 +263,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Music className="h-7 w-7 text-foreground/60" />
-              <h1 className="text-xl font-semibold text-foreground">Bilibili 转 MP3</h1>
-            </div>
-            <nav className="hidden md:flex items-center gap-2">
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/records">我的记录</Link>
-              </Button>
-              <Button variant="ghost" size="sm" className="opacity-60" disabled>
-                关于
-              </Button>
-              <Button variant="ghost" size="sm" className="opacity-60" disabled>
-                常见问题
-              </Button>
-              <Button variant="ghost" size="sm" className="opacity-60" disabled>
-                联系我们
-              </Button>
-            </nav>
-            {/* Mobile: 单独展示“我的记录”入口 */}
-            <div className="md:hidden">
-              <Button asChild size="sm" variant="outline">
-                <Link href="/records">我的记录</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header />
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-12">
@@ -290,10 +273,11 @@ export default function HomePage() {
             <div className="mx-auto mb-6 h-16 w-16 rounded-xl bg-muted grid place-items-center">
               <Video className="h-8 w-8 text-foreground/60" />
             </div>
-            <h2 className="text-4xl font-bold text-foreground mb-3">轻松将 Bilibili 视频转换为 MP3</h2>
-            <p className="text-base md:text-lg text-foreground/70">快速、简单的在线视频转音频工具</p>
+            <h2 className="text-4xl font-bold text-foreground mb-3">多平台视频转 MP3 工具</h2>
+            <p className="text-base md:text-lg text-foreground/70">支持 Bilibili、小红书、抖音、YouTube 等平台</p>
             <div className="flex flex-wrap justify-center gap-2 mt-4">
-              <Badge variant="secondary">支持 b23.tv 短链</Badge>
+              <Badge variant="secondary">支持多平台</Badge>
+              <Badge variant="secondary">批量转换</Badge>
               <Badge variant="secondary">自动获取标题与封面</Badge>
               <Badge variant="secondary">无广告</Badge>
             </div>
@@ -332,7 +316,7 @@ export default function HomePage() {
                   <Download className="h-5 w-5 text-foreground/60" />
                   开始转换
                 </CardTitle>
-                <CardDescription>粘贴 Bilibili 视频链接（支持单个或批量，批量以分号分隔）</CardDescription>
+                <CardDescription>粘贴视频链接（支持 Bilibili、小红书、抖音、YouTube，可单个或批量转换）</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid gap-6 md:grid-cols-2">
@@ -355,7 +339,7 @@ export default function HomePage() {
                         </label>
                         <Textarea
                           id="batch-input"
-                          placeholder="https://www.bilibili.com/video/BV...; https://b23.tv/...; https://m.bilibili.com/video/BV..."
+                          placeholder="https://www.bilibili.com/video/BV...; https://youtu.be/...; https://www.xiaohongshu.com/...; https://www.douyin.com/..."
                           value={batchInput}
                           onChange={(e) => setBatchInput(e.target.value)}
                           className="w-full max-w-full break-all whitespace-pre-wrap resize-y overflow-x-hidden"
@@ -371,7 +355,7 @@ export default function HomePage() {
                         <Input
                           id="video-url"
                           type="url"
-                          placeholder="https://www.bilibili.com/video/BV... 或 https://b23.tv/..."
+                          placeholder="支持 Bilibili、YouTube、小红书、抖音等平台链接"
                           value={videoUrl}
                           onPaste={handlePaste}
                           onChange={(e) => {
@@ -398,42 +382,14 @@ export default function HomePage() {
 
                   {/* 右侧预览（单个模式可用） */}
                   <div>
-                    <Card className="bg-muted/30">
-                      <CardHeader>
-                        <CardTitle className="text-base">视频预览</CardTitle>
-                        <CardDescription>根据链接自动获取</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        {!batchMode && !isSupportedUrl(videoUrl) ? (
-                          <div className="text-sm text-foreground/70">粘贴一个有效的 B 站链接以预览</div>
-                        ) : !batchMode && metaLoading ? (
-                          <div className="space-y-3">
-                            <Skeleton className="h-24 w-full rounded" />
-                            <Skeleton className="h-4 w-2/3" />
-                            <Skeleton className="h-3 w-1/3" />
-                          </div>
-                        ) : !batchMode && meta ? (
-                          <div className="flex gap-3 items-start">
-                            <div className="w-40">
-                              <AspectRatio ratio={16 / 9}>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={meta.coverUrl} alt="视频封面" className="h-full w-full object-cover rounded" />
-                              </AspectRatio>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs text-foreground/60 mb-1">校验成功</div>
-                              <div className="text-sm font-medium text-foreground break-words">{meta.title}</div>
-                            </div>
-                          </div>
-                        ) : !batchMode && metaError ? (
-                          <Alert variant="destructive">
-                            <AlertDescription>{metaError}</AlertDescription>
-                          </Alert>
-                        ) : (
-                          <div className="text-sm text-foreground/70">{batchMode ? "批量模式下不提供预览" : "检测到有效链接，正在准备预览"}</div>
-                        )}
-                      </CardContent>
-                    </Card>
+                    <VideoPreview
+                      batchMode={batchMode}
+                      videoUrl={videoUrl}
+                      isSupportedUrl={isSupportedUrl}
+                      metaLoading={metaLoading}
+                      meta={meta}
+                      metaError={metaError}
+                    />
                   </div>
                 </div>
               </CardContent>
@@ -494,49 +450,11 @@ export default function HomePage() {
           )}
 
           {/* Instructions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>使用说明</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ol className="list-decimal list-inside space-y-2 text-foreground/80">
-                <li>复制 Bilibili 视频的完整链接</li>
-                <li>将链接粘贴到上方的输入框中</li>
-                <li>点击“转换为 MP3”按钮开始转换</li>
-                <li>等待转换完成后下载 MP3 文件</li>
-              </ol>
-              <div className="mt-4 p-4 bg-muted rounded-lg">
-                <p className="text-sm text-foreground/70">
-                  <strong>支持的链接格式：</strong>
-                  <br />• https://www.bilibili.com/video/BV...
-                  <br />• https://b23.tv/...
-                  <br />• https://m.bilibili.com/video/BV...
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <UsageInstructions />
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-border mt-16">
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center text-foreground/70">
-            <p>&copy; 2024 Bilibili 转 MP3 工具. 仅供个人学习使用.</p>
-            <div className="flex justify-center gap-6 mt-4">
-              <span className="hover:text-foreground transition-colors cursor-not-allowed opacity-60" aria-disabled="true" title="暂未开放">
-                服务条款
-              </span>
-              <span className="hover:text-foreground transition-colors cursor-not-allowed opacity-60" aria-disabled="true" title="暂未开放">
-                隐私政策
-              </span>
-              <span className="hover:text-foreground transition-colors cursor-not-allowed opacity-60" aria-disabled="true" title="暂未开放">
-                技术支持
-              </span>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   )
 }

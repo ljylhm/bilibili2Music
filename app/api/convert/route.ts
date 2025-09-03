@@ -18,15 +18,36 @@ async function ensureTempDir() {
   }
 }
 
-// 验证Bilibili URL
-function validateBilibiliUrl(url: string): boolean {
-  const bilibiliPatterns = [
-    /^https?:\/\/(www\.)?bilibili\.com\/video\/[A-Za-z0-9]+/,
-    /^https?:\/\/b23\.tv\/[A-Za-z0-9]+/,
-    /^https?:\/\/m\.bilibili\.com\/video\/[A-Za-z0-9]+/,
-  ]
-
-  return bilibiliPatterns.some((pattern) => pattern.test(url))
+// 验证支持的平台URL
+function validateSupportedUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.toLowerCase()
+    
+    // Bilibili
+    if (host === "b23.tv" || host === "bilibili.com" || host.endsWith(".bilibili.com")) {
+      return true
+    }
+    
+    // 小红书
+    if (host === "xiaohongshu.com" || host.endsWith(".xiaohongshu.com") || host === "xhslink.com") {
+      return true
+    }
+    
+    // 抖音
+    if (host === "douyin.com" || host.endsWith(".douyin.com") || host === "iesdouyin.com" || host.endsWith(".iesdouyin.com") || host === "v.douyin.com") {
+      return true
+    }
+    
+    // YouTube
+    if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be" || host === "m.youtube.com") {
+      return true
+    }
+    
+    return false
+  } catch {
+    return false
+  }
 }
 
 // 生成唯一文件名
@@ -81,13 +102,46 @@ async function downloadVideoToTemp(videoUrl: string): Promise<{ inputPath: strin
   // 生成唯一前缀，便于找到下载后的文件
   const baseName = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
   const outputTemplate = path.join(TEMP_DIR, `${baseName}.%(ext)s`)
-  const command = `yt-dlp -f bestaudio/best --no-playlist --restrict-filenames -o "${outputTemplate}" "${videoUrl}"`
+  
+  // 检测平台类型，调整下载策略
+  const url = new URL(videoUrl)
+  const host = url.hostname.toLowerCase()
+  let formatSelector = "bestaudio/best"
+  
+  // 小红书通常只有视频格式，需要下载视频后提取音频
+  // 选择较小的格式以避免文件过大
+  if (host.includes("xiaohongshu") || host.includes("xhslink")) {
+    formatSelector = "worst[height>=360]/best[height<=720]/best"
+  }
+  // 抖音优化：使用适合的格式选择器和特殊参数
+  else if (host.includes("douyin") || host.includes("iesdouyin")) {
+    formatSelector = "best[height<=720]/best"
+  }
+  // YouTube优化：使用最基本的格式选择器避免403错误
+  else if (host.includes("youtube") || host.includes("youtu.be")) {
+    formatSelector = "bestaudio/best"
+  }
+  
+  // 为不同平台添加额外的网络优化参数
+  let command = `yt-dlp -f "${formatSelector}" --no-playlist --restrict-filenames`
+  
+  if (host.includes("youtube") || host.includes("youtu.be")) {
+    // YouTube特殊优化：使用多种客户端尝试绕过地区限制
+    command += ` --retries 10 --fragment-retries 10 --sleep-interval 1 --max-sleep-interval 3 --user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" --extractor-args "youtube:player_client=android,web"`
+  } else if (host.includes("douyin") || host.includes("iesdouyin")) {
+    // 抖音特殊优化：添加用户代理和重试机制
+    command += ` --retries 5 --fragment-retries 5 --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"`
+  }
+  
+  command += ` -o "${outputTemplate}" "${videoUrl}"`
 
   console.log(`[v0] 执行下载命令: ${command}`)
 
   try {
+    // YouTube需要更长的超时时间，因为添加了重试和睡眠机制
+    const timeout = (host.includes("youtube") || host.includes("youtu.be")) ? 600000 : 300000 // YouTube: 10分钟，其他: 5分钟
     const { stdout, stderr } = await execAsync(command, {
-      timeout: 300000, // 5分钟
+      timeout,
       maxBuffer: 1024 * 1024 * 10,
     })
     if (stdout) console.log(`[v0] yt-dlp输出: ${stdout}`)
@@ -196,9 +250,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "请提供有效的视频链接" }, { status: 400 })
     }
 
-    // 验证是否为Bilibili链接
-    if (!validateBilibiliUrl(url)) {
-      return NextResponse.json({ error: "请提供有效的Bilibili视频链接" }, { status: 400 })
+    // 验证是否为支持的平台链接
+    if (!validateSupportedUrl(url)) {
+      return NextResponse.json({ error: "请提供有效的视频链接（支持 Bilibili、YouTube、小红书、抖音）" }, { status: 400 })
     }
 
     console.log(`[v0] 开始处理视频链接: ${url}`)

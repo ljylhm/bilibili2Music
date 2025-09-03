@@ -2,7 +2,16 @@ import { NextResponse } from "next/server"
 
 function isSupportedHost(host: string) {
   const h = host.toLowerCase()
-  return h === "b23.tv" || h === "bilibili.com" || h.endsWith(".bilibili.com")
+  return (
+    // Bilibili
+    h === "b23.tv" || h === "bilibili.com" || h.endsWith(".bilibili.com") ||
+    // 小红书
+    h === "xiaohongshu.com" || h.endsWith(".xiaohongshu.com") || h === "xhslink.com" ||
+    // 抖音
+    h === "douyin.com" || h.endsWith(".douyin.com") || h === "iesdouyin.com" || h.endsWith(".iesdouyin.com") ||
+    // YouTube
+    h === "youtube.com" || h.endsWith(".youtube.com") || h === "youtu.be" || h === "m.youtube.com"
+  )
 }
 
 async function resolveB23(url: string): Promise<string> {
@@ -89,35 +98,55 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "跳转后域名不受支持" }, { status: 400 })
     }
 
-    const bvid = extractBvid(parsed)
-    if (!bvid) {
-      return NextResponse.json({ error: "无法解析视频ID（BV号）" }, { status: 400 })
+    // 检测平台类型并处理
+    const host = parsed.hostname.toLowerCase()
+    
+    if (host === "b23.tv" || host === "bilibili.com" || host.endsWith(".bilibili.com")) {
+      // Bilibili 处理逻辑
+      const bvid = extractBvid(parsed)
+      if (!bvid) {
+        return NextResponse.json({ error: "无法解析视频ID（BV号）" }, { status: 400 })
+      }
+
+      const api = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`
+      const resp = await fetch(api, {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Accept": "application/json",
+        },
+      })
+
+      if (!resp.ok) {
+        return NextResponse.json({ error: "获取视频信息失败（网络）" }, { status: 502 })
+      }
+
+      const data = await resp.json()
+      if (!data || typeof data !== "object" || data.code !== 0 || !data.data) {
+        return NextResponse.json({ error: "获取视频信息失败（返回异常）" }, { status: 502 })
+      }
+
+      const title: string = data.data.title
+      const coverUrl: string = data.data.pic
+
+      // 抓取封面并返回 base64 data URL（带防盗链头）
+      const { dataUrl: coverDataUrl, mime: coverMime } = await fetchImageAsBase64(coverUrl)
+
+      return NextResponse.json({ title, coverUrl, coverDataUrl, coverMime, bvid, finalUrl, platform: "bilibili" })
+    } else {
+      // 其他平台暂时返回基本信息，实际实现需要各平台的API
+      const platformName = host.includes("youtube") ? "YouTube" : 
+                          host.includes("xiaohongshu") || host.includes("xhslink") ? "小红书" :
+                          host.includes("douyin") ? "抖音" : "未知平台"
+      
+      return NextResponse.json({ 
+        title: `${platformName} 视频`, 
+        coverUrl: "", 
+        coverDataUrl: "", 
+        coverMime: "", 
+        finalUrl,
+        platform: platformName.toLowerCase()
+      })
     }
-
-    const api = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`
-    const resp = await fetch(api, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json",
-      },
-    })
-
-    if (!resp.ok) {
-      return NextResponse.json({ error: "获取视频信息失败（网络）" }, { status: 502 })
-    }
-
-    const data = await resp.json()
-    if (!data || typeof data !== "object" || data.code !== 0 || !data.data) {
-      return NextResponse.json({ error: "获取视频信息失败（返回异常）" }, { status: 502 })
-    }
-
-    const title: string = data.data.title
-    const coverUrl: string = data.data.pic
-
-    // 新增：抓取封面并返回 base64 data URL（带防盗链头）
-    const { dataUrl: coverDataUrl, mime: coverMime } = await fetchImageAsBase64(coverUrl)
-
-    return NextResponse.json({ title, coverUrl, coverDataUrl, coverMime, bvid, finalUrl })
   } catch (e) {
     return NextResponse.json({ error: "服务器内部错误" }, { status: 500 })
   }
