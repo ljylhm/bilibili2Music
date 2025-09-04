@@ -13,18 +13,38 @@ export async function GET(request: NextRequest, { params }: { params: { filename
     }
 
     // 验证文件扩展名
-    if (!filename.endsWith(".mp3")) {
+    if (!filename.endsWith(".mp3") && !filename.endsWith(".mp4")) {
       return NextResponse.json({ error: "不支持的文件类型" }, { status: 400 })
     }
 
-    const fileInfo = fileManager.getFileInfo(filename)
-    const filePath = fileManager.getFilePath(filename)
+    // 尝试从fileManager获取文件信息
+    let fileInfo = fileManager.getFileInfo(filename)
+    let filePath = fileManager.getFilePath(filename)
+    
+    // 如果文件不存在，尝试从临时目录获取
+    if (!existsSync(filePath)) {
+      const tempDir = process.cwd() + "/temp"
+      const tempFilePath = `${tempDir}/${filename}`
+      
+      if (existsSync(tempFilePath)) {
+        filePath = tempFilePath
+         // 为临时文件创建一个默认的fileInfo
+         const tomorrow = new Date()
+         tomorrow.setDate(tomorrow.getDate() + 1)
+         fileInfo = {
+           filename,
+           expiresAt: tomorrow,
+           createdAt: new Date()
+         }
+      }
+    }
 
     // 检查文件是否存在且未过期
     if (!existsSync(filePath)) {
       return NextResponse.json({ error: "文件不存在或已过期" }, { status: 404 })
     }
 
+    // 只有fileManager管理的文件才检查过期时间
     if (fileInfo && fileInfo.expiresAt <= new Date()) {
       // 文件已过期，删除它
       await fileManager.deleteFile(filename)
@@ -39,7 +59,14 @@ export async function GET(request: NextRequest, { params }: { params: { filename
 
     // 设置响应头
     const headers = new Headers()
-    headers.set("Content-Type", "audio/mpeg")
+    
+    // 根据文件扩展名设置正确的Content-Type
+    if (filename.endsWith(".mp3")) {
+      headers.set("Content-Type", "audio/mpeg")
+    } else if (filename.endsWith(".mp4")) {
+      headers.set("Content-Type", "video/mp4")
+    }
+    
     headers.set("Content-Length", fileStats.size.toString())
     headers.set("Content-Disposition", `attachment; filename="${filename}"`)
     headers.set("Cache-Control", "no-cache")
@@ -49,7 +76,7 @@ export async function GET(request: NextRequest, { params }: { params: { filename
     }
 
     // 创建响应
-    const response = new NextResponse(fileBuffer, {
+    const response = new NextResponse(new Blob([fileBuffer]), {
       status: 200,
       headers,
     })

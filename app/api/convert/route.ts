@@ -19,7 +19,7 @@ async function ensureTempDir() {
 }
 
 // 验证支持的平台URL
-function validateSupportedUrl(url: string): boolean {
+export function validateSupportedUrl(url: string): { isValid: boolean; error?: string } {
   try {
     const u = new URL(url)
     const host = u.hostname.toLowerCase()
@@ -96,7 +96,7 @@ async function downloadAndConvertToMp3(videoUrl: string): Promise<string> {
 }
 
 // 先下载视频/音频到临时目录（不转码）
-async function downloadVideoToTemp(videoUrl: string): Promise<{ inputPath: string }> {
+export async function downloadVideoToTemp(videoUrl: string, outputPath?: string): Promise<{ inputPath: string, success?: boolean, error?: string }> {
   await ensureTempDir()
 
   // 生成唯一前缀，便于找到下载后的文件
@@ -122,8 +122,25 @@ async function downloadVideoToTemp(videoUrl: string): Promise<{ inputPath: strin
     formatSelector = "bestaudio/best"
   }
   
+  // 如果指定了输出路径，则下载视频而不是音频
+  if (outputPath) {
+    // 视频下载模式：根据平台选择合适的视频格式
+    if (host.includes("xiaohongshu") || host.includes("xhslink")) {
+      formatSelector = "best[height<=720]/best"
+    } else if (host.includes("douyin") || host.includes("iesdouyin")) {
+      formatSelector = "best[height<=720]/best"
+    } else if (host.includes("youtube") || host.includes("youtu.be")) {
+      formatSelector = "best[height<=720]/best"
+    } else {
+      formatSelector = "best[height<=720]/best"
+    }
+  }
+  
   // 为不同平台添加额外的网络优化参数
   let command = `yt-dlp -f "${formatSelector}" --no-playlist --restrict-filenames`
+  
+  // 如果指定了输出路径，则直接下载到指定路径
+  const finalOutputTemplate = outputPath || path.join(TEMP_DIR, `${baseName}.%(ext)s`)
   
   if (host.includes("youtube") || host.includes("youtu.be")) {
     // YouTube特殊优化：使用多种客户端尝试绕过地区限制
@@ -133,7 +150,7 @@ async function downloadVideoToTemp(videoUrl: string): Promise<{ inputPath: strin
     command += ` --retries 5 --fragment-retries 5 --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"`
   }
   
-  command += ` -o "${outputTemplate}" "${videoUrl}"`
+  command += ` -o "${finalOutputTemplate}" "${videoUrl}"`
 
   console.log(`[v0] 执行下载命令: ${command}`)
 
@@ -163,9 +180,37 @@ async function downloadVideoToTemp(videoUrl: string): Promise<{ inputPath: strin
     throw new Error("下载完成但未找到输出文件")
   }
 
-  const inputPath = path.join(TEMP_DIR, matched)
-  console.log("[v0] 下载完成，文件路径:", inputPath)
-  return { inputPath }
+  // 如果指定了输出路径，则将文件移动到指定路径
+  const downloadedPath = path.join(TEMP_DIR, matched)
+  console.log("[v0] 下载完成，文件路径:", downloadedPath)
+  
+  if (outputPath) {
+    try {
+      // 确保目标目录存在
+      const targetDir = path.dirname(outputPath)
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true })
+      }
+      
+      // 复制文件到指定路径
+      fs.copyFileSync(downloadedPath, outputPath)
+      console.log(`[v0] 文件已复制到指定路径: ${outputPath}`)
+      
+      // 删除临时文件
+      fs.unlinkSync(downloadedPath)
+      
+      return { inputPath: outputPath, success: true }
+    } catch (error: any) {
+      console.error(`[v0] 移动文件失败:`, error)
+      return { 
+        inputPath: downloadedPath, 
+        success: false, 
+        error: `移动文件失败: ${error.message || '未知错误'}` 
+      }
+    }
+  }
+  
+  return { inputPath: downloadedPath, success: true }
 }
 
 // 将已下载的文件转换为 MP3
