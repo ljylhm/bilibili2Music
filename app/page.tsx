@@ -56,6 +56,31 @@ export default function HomePage() {
   }
   const [batchTasks, setBatchTasks] = useState<BatchTask[]>([])
 
+  // 合集相关状态
+  const [isCollection, setIsCollection] = useState(false)
+  const [collectionInfo, setCollectionInfo] = useState<{
+    title: string
+    description: string
+    cover: string
+    total: number
+    videos: Array<{
+      bvid: string
+      title: string
+      pic: string
+      url: string
+    }>
+  } | null>(null)
+  const [collectionLoading, setCollectionLoading] = useState(false)
+  const [collectionError, setCollectionError] = useState<string | null>(null)
+  const [collectionDownloading, setCollectionDownloading] = useState(false)
+  const [collectionResults, setCollectionResults] = useState<Array<{
+    title: string
+    url: string
+    success: boolean
+    filename?: string
+    error?: string
+  }> | null>(null)
+
   // 受支持域名判断
   const isSupportedHost = (host: string) => {
     const h = host.toLowerCase()
@@ -76,6 +101,18 @@ export default function HomePage() {
     try {
       const u = new URL(url.trim())
       return isSupportedHost(u.hostname)
+    } catch {
+      return false
+    }
+  }
+
+  // 检测是否为合集链接（简化版，主要检查是否为 Bilibili 链接）
+  const isCollectionUrl = (url: string) => {
+    try {
+      const u = new URL(url.trim())
+      const host = u.hostname.toLowerCase()
+      // 对于 Bilibili 链接，都尝试作为合集处理，让后端 API 来判断
+      return host === "b23.tv" || host === "bilibili.com" || host.endsWith(".bilibili.com")
     } catch {
       return false
     }
@@ -139,6 +176,78 @@ export default function HomePage() {
       return
     }
     await startConversion(cleaned)
+  }
+
+  // 获取合集信息
+  const fetchCollectionInfo = async (url: string) => {
+    setCollectionLoading(true)
+    setCollectionError(null)
+    try {
+      const response = await fetch("/api/collection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || "获取合集信息失败")
+      }
+      
+      const data = await response.json()
+      if (data.success) {
+        setCollectionInfo({
+          title: data.collection.title,
+          description: data.collection.description,
+          cover: data.collection.cover,
+          total: data.collection.total,
+          videos: data.videos
+        })
+        setIsCollection(true)
+      } else {
+        throw new Error(data.error || "获取合集信息失败")
+      }
+    } catch (error: any) {
+      setCollectionError(error.message || "获取合集信息失败")
+      setIsCollection(false)
+    } finally {
+      setCollectionLoading(false)
+    }
+  }
+
+  // 批量下载合集
+  const handleCollectionBatchDownload = async () => {
+    if (!collectionInfo) return
+    
+    setCollectionDownloading(true)
+    setCollectionResults(null)
+    
+    try {
+      const response = await fetch("/api/collection-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videos: collectionInfo.videos,
+          collectionTitle: collectionInfo.title
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || "批量下载失败")
+      }
+      
+      const data = await response.json()
+      if (data.success) {
+        setCollectionResults(data.results)
+      } else {
+        throw new Error(data.error || "批量下载失败")
+      }
+    } catch (error: any) {
+      setCollectionError(error.message || "批量下载失败")
+    } finally {
+      setCollectionDownloading(false)
+    }
   }
 
   // 批量处理：并发启动每个任务
@@ -219,6 +328,10 @@ export default function HomePage() {
     if (batchMode) return
     setMeta(null)
     setMetaError(null)
+    setIsCollection(false)
+    setCollectionInfo(null)
+    setCollectionError(null)
+    setCollectionResults(null)
 
     const candidate = extractFirstSupportedUrl(videoUrl) || videoUrl
     if (!isSupportedUrl(candidate)) {
@@ -228,30 +341,66 @@ export default function HomePage() {
 
     const controller = new AbortController()
     const timer = setTimeout(async () => {
-      setMetaLoading(true)
-      try {
-        const res = await fetch("/api/metadata", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: candidate }),
-          signal: controller.signal,
-        })
-        if (!res.ok) {
-          const msg = await res.text().catch(() => "")
-          throw new Error(msg || "获取视频信息失败")
+      // 对于 Bilibili 链接，先尝试作为合集处理
+      if (isCollectionUrl(candidate)) {
+        try {
+          await fetchCollectionInfo(candidate)
+        } catch (error) {
+          // 如果合集获取失败，再尝试作为普通视频处理
+          console.log("合集获取失败，尝试作为普通视频处理")
+          setMetaLoading(true)
+          try {
+            const res = await fetch("/api/metadata", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: candidate }),
+              signal: controller.signal,
+            })
+            if (!res.ok) {
+              const msg = await res.text().catch(() => "")
+              throw new Error(msg || "获取视频信息失败")
+            }
+            const data = await res.json()
+            if (data?.title && data?.coverDataUrl) {
+              setMeta({ title: data.title, coverUrl: data.coverDataUrl })
+            } else {
+              setMetaError("未获取到视频信息")
+            }
+          } catch (err: any) {
+            if (err?.name !== "AbortError") {
+              setMetaError("获取视频信息失败")
+            }
+          } finally {
+            setMetaLoading(false)
+          }
         }
-        const data = await res.json()
-        if (data?.title && data?.coverDataUrl) {
-          setMeta({ title: data.title, coverUrl: data.coverDataUrl })
-        } else {
-          setMetaError("未获取到视频信息")
+      } else {
+        // 非 Bilibili 链接，直接获取元数据
+        setMetaLoading(true)
+        try {
+          const res = await fetch("/api/metadata", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: candidate }),
+            signal: controller.signal,
+          })
+          if (!res.ok) {
+            const msg = await res.text().catch(() => "")
+            throw new Error(msg || "获取视频信息失败")
+          }
+          const data = await res.json()
+          if (data?.title && data?.coverDataUrl) {
+            setMeta({ title: data.title, coverUrl: data.coverDataUrl })
+          } else {
+            setMetaError("未获取到视频信息")
+          }
+        } catch (err: any) {
+          if (err?.name !== "AbortError") {
+            setMetaError("获取视频信息失败")
+          }
+        } finally {
+          setMetaLoading(false)
         }
-      } catch (err: any) {
-        if (err?.name !== "AbortError") {
-          setMetaError("获取视频信息失败")
-        }
-      } finally {
-        setMetaLoading(false)
       }
     }, 400)
 
@@ -382,14 +531,65 @@ export default function HomePage() {
 
                   {/* 右侧预览（单个模式可用） */}
                   <div>
-                    <VideoPreview
-                      batchMode={batchMode}
-                      videoUrl={videoUrl}
-                      isSupportedUrl={isSupportedUrl}
-                      metaLoading={metaLoading}
-                      meta={meta}
-                      metaError={metaError}
-                    />
+                    {!batchMode && isCollection ? (
+                      /* 合集信息显示 */
+                      <div className="space-y-4">
+                        <div className="text-sm font-medium text-foreground">合集信息</div>
+                        {collectionLoading && (
+                          <div className="space-y-3">
+                            <Skeleton className="h-4 w-3/4" />
+                            <Skeleton className="h-4 w-1/2" />
+                            <Skeleton className="h-20 w-full" />
+                          </div>
+                        )}
+                        {collectionError && (
+                          <Alert>
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>{collectionError}</AlertDescription>
+                          </Alert>
+                        )}
+                        {collectionInfo && (
+                          <div className="space-y-4">
+                            <div>
+                              <h3 className="font-medium text-sm">{collectionInfo.title}</h3>
+                              <p className="text-xs text-foreground/60 mt-1">
+                                共 {collectionInfo.videos.length} 个视频
+                              </p>
+                            </div>
+                            <div className="max-h-40 overflow-y-auto space-y-2">
+                              {collectionInfo.videos.slice(0, 5).map((video, index) => (
+                                <div key={index} className="text-xs p-2 bg-muted rounded text-foreground/80">
+                                  {video.title}
+                                </div>
+                              ))}
+                              {collectionInfo.videos.length > 5 && (
+                                <div className="text-xs text-foreground/60 text-center">
+                                  还有 {collectionInfo.videos.length - 5} 个视频...
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                               onClick={handleCollectionBatchDownload}
+                               disabled={collectionDownloading}
+                               size="sm"
+                               className="w-full"
+                             >
+                              <Download className="h-4 w-4 mr-2" />
+                              {collectionDownloading ? "批量下载中..." : `批量下载 (${collectionInfo.videos.length})`}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <VideoPreview
+                        batchMode={batchMode}
+                        videoUrl={videoUrl}
+                        isSupportedUrl={isSupportedUrl}
+                        metaLoading={metaLoading}
+                        meta={meta}
+                        metaError={metaError}
+                      />
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -434,6 +634,44 @@ export default function HomePage() {
                 ))}
                 <div className="pt-2 flex justify-end">
                   <Button variant="outline" size="sm" onClick={() => setBatchTasks([])}>
+                    清空列表
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 合集批量下载结果 */}
+          {collectionResults && collectionResults.length > 0 && (
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle>合集批量下载结果</CardTitle>
+                <CardDescription>
+                  成功：{collectionResults.filter(r => r.success).length} / 总计：{collectionResults.length}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {collectionResults.map((result, index) => (
+                  <div key={index} className="rounded-md border border-border p-3 flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate" title={result.title}>{result.title}</div>
+                      <div className="text-xs text-foreground/60">
+                        {result.success ? "下载成功" : `下载失败：${result.error || "未知错误"}`}
+                      </div>
+                    </div>
+                    {result.success && result.filename && (
+                      <a
+                        href={`/api/download/${result.filename}`}
+                        download
+                        className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-2 rounded-md text-sm hover:bg-primary/90"
+                      >
+                        <Download className="h-4 w-4" /> 下载 MP3
+                      </a>
+                    )}
+                  </div>
+                ))}
+                <div className="pt-2 flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setCollectionResults(null)}>
                     清空列表
                   </Button>
                 </div>
