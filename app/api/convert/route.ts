@@ -18,35 +18,54 @@ async function ensureTempDir() {
   }
 }
 
+export function normalizeInputUrl(input: string): string {
+  const text = String(input ?? "").trim()
+  if (!text) return ""
+
+  const stripped = text
+    .replace(/[\r\n\t]+/g, " ")
+    .trim()
+    .replace(/^[`"'“”‘’<>\s]+/, "")
+    .replace(/[`"'“”‘’<>\s]+$/, "")
+
+  const matched = stripped.match(/https?:\/\/[^\s<>`"'“”‘’]+/i)
+  if (!matched) {
+    return stripped
+  }
+
+  return matched[0].trim()
+}
+
 // 验证支持的平台URL
 export function validateSupportedUrl(url: string): { isValid: boolean; error?: string } {
   try {
-    const u = new URL(url)
+    const normalized = normalizeInputUrl(url)
+    const u = new URL(normalized)
     const host = u.hostname.toLowerCase()
     
     // Bilibili
     if (host === "b23.tv" || host === "bilibili.com" || host.endsWith(".bilibili.com")) {
-      return true
+      return { isValid: true }
     }
     
     // 小红书
     if (host === "xiaohongshu.com" || host.endsWith(".xiaohongshu.com") || host === "xhslink.com") {
-      return true
+      return { isValid: true }
     }
     
     // 抖音
     if (host === "douyin.com" || host.endsWith(".douyin.com") || host === "iesdouyin.com" || host.endsWith(".iesdouyin.com") || host === "v.douyin.com") {
-      return true
+      return { isValid: true }
     }
     
     // YouTube
     if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be" || host === "m.youtube.com") {
-      return true
+      return { isValid: true }
     }
     
-    return false
+    return { isValid: false, error: "请提供有效的视频链接（支持 Bilibili、YouTube、小红书、抖音）" }
   } catch {
-    return false
+    return { isValid: false, error: "链接格式无效，请检查后重试" }
   }
 }
 
@@ -98,13 +117,14 @@ async function downloadAndConvertToMp3(videoUrl: string): Promise<string> {
 // 先下载视频/音频到临时目录（不转码）
 export async function downloadVideoToTemp(videoUrl: string, outputPath?: string): Promise<{ inputPath: string, success?: boolean, error?: string }> {
   await ensureTempDir()
+  const normalizedUrl = normalizeInputUrl(videoUrl)
 
   // 生成唯一前缀，便于找到下载后的文件
   const baseName = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
   const outputTemplate = path.join(TEMP_DIR, `${baseName}.%(ext)s`)
   
   // 检测平台类型，调整下载策略
-  const url = new URL(videoUrl)
+  const url = new URL(normalizedUrl)
   const host = url.hostname.toLowerCase()
   let formatSelector = "bestaudio/best"
   
@@ -150,7 +170,7 @@ export async function downloadVideoToTemp(videoUrl: string, outputPath?: string)
     command += ` --retries 5 --fragment-retries 5 --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"`
   }
   
-  command += ` -o "${finalOutputTemplate}" "${videoUrl}"`
+  command += ` -o "${finalOutputTemplate}" "${normalizedUrl}"`
 
   console.log(`[v0] 执行下载命令: ${command}`)
 
@@ -296,14 +316,16 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证是否为支持的平台链接
-    if (!validateSupportedUrl(url)) {
-      return NextResponse.json({ error: "请提供有效的视频链接（支持 Bilibili、YouTube、小红书、抖音）" }, { status: 400 })
+    const normalizedUrl = normalizeInputUrl(url)
+    const validationResult = validateSupportedUrl(normalizedUrl)
+    if (!validationResult.isValid) {
+      return NextResponse.json({ error: validationResult.error || "请提供有效的视频链接" }, { status: 400 })
     }
 
-    console.log(`[v0] 开始处理视频链接: ${url}`)
+    console.log(`[v0] 开始处理视频链接: ${normalizedUrl}`)
 
     // 下载并转换视频
-    const filename = await downloadAndConvertToMp3(url)
+    const filename = await downloadAndConvertToMp3(normalizedUrl)
 
     // 生成下载链接
     const downloadUrl = `/api/download/${filename}`

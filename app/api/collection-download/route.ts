@@ -4,6 +4,7 @@ import { promisify } from "util"
 import path from "path"
 import { existsSync } from "fs"
 import { fileManager } from "@/lib/file-manager"
+import { normalizeInputUrl } from "../convert/route"
 
 const execAsync = promisify(exec)
 
@@ -25,15 +26,16 @@ async function downloadSingleVideo(
   outputDir: string
 ): Promise<{ success: boolean; filename?: string; error?: string }> {
   try {
+    const normalizedUrl = normalizeInputUrl(videoUrl)
     console.log(`[collection-download] 开始下载: ${videoTitle}`)
-    console.log(`[collection-download] 视频URL: ${videoUrl}`)
+    console.log(`[collection-download] 视频URL: ${normalizedUrl}`)
     
     // 如果标题为 'NA' 或 '未知标题'，先获取真实标题
     let actualTitle = videoTitle
     if (videoTitle === 'NA' || videoTitle === '未知标题' || !videoTitle || videoTitle.trim() === '') {
       try {
-        console.log(`[collection-download] 获取视频真实标题: ${videoUrl}`)
-        const titleCommand = `yt-dlp --get-title "${videoUrl}"`
+        console.log(`[collection-download] 获取视频真实标题: ${normalizedUrl}`)
+        const titleCommand = `yt-dlp --get-title "${normalizedUrl}"`
         const { stdout: titleStdout } = await execAsync(titleCommand, {
           timeout: 30000, // 30秒超时
           maxBuffer: 1024 * 1024 // 1MB buffer
@@ -62,7 +64,7 @@ async function downloadSingleVideo(
     console.log(`[collection-download] 输出路径: ${outputPath}`)
     
     // 直接使用 yt-dlp 下载并转换为 MP3，简化流程
-    const command = `yt-dlp --extract-audio --audio-format mp3 --audio-quality 192K --output "${outputPath.replace('.mp3', '.%(ext)s')}" "${videoUrl}"`
+    const command = `yt-dlp --extract-audio --audio-format mp3 --audio-quality 192K --output "${outputPath.replace('.mp3', '.%(ext)s')}" "${normalizedUrl}"`
     
     console.log(`[collection-download] 执行命令: ${command}`)
     

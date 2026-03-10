@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import path from "path"
 import fs from "fs"
 import crypto from "crypto"
-import { validateSupportedUrl, downloadVideoToTemp } from "../convert/route"
+import { normalizeInputUrl, validateSupportedUrl, downloadVideoToTemp } from "../convert/route"
 
 // 视频下载API端点
 export async function POST(req: NextRequest) {
   try {
     const { url } = await req.json()
+    const normalizedUrl = normalizeInputUrl(url)
 
     // 验证URL是否受支持
-    const validationResult = validateSupportedUrl(url)
+    const validationResult = validateSupportedUrl(normalizedUrl)
     if (!validationResult.isValid) {
       return NextResponse.json(
         { error: validationResult.error || "不支持的URL" },
@@ -30,13 +31,13 @@ export async function POST(req: NextRequest) {
     
     // 根据URL确定合适的文件扩展名
     let fileExt = "mp4"
-    if (url.includes("youtube.com") || url.includes("youtu.be")) {
+    if (normalizedUrl.includes("youtube.com") || normalizedUrl.includes("youtu.be")) {
       fileExt = "mp4"
-    } else if (url.includes("bilibili.com") || url.includes("b23.tv")) {
+    } else if (normalizedUrl.includes("bilibili.com") || normalizedUrl.includes("b23.tv")) {
       fileExt = "mp4"
-    } else if (url.includes("douyin.com") || url.includes("iesdouyin.com")) {
+    } else if (normalizedUrl.includes("douyin.com") || normalizedUrl.includes("iesdouyin.com")) {
       fileExt = "mp4"
-    } else if (url.includes("xiaohongshu.com") || url.includes("xhslink.com")) {
+    } else if (normalizedUrl.includes("xiaohongshu.com") || normalizedUrl.includes("xhslink.com")) {
       fileExt = "mp4"
     }
     
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
     const outputPath = path.join(tempDir, filename)
 
     // 下载视频
-    const downloadResult = await downloadVideoToTemp(url, outputPath)
+    const downloadResult = await downloadVideoToTemp(normalizedUrl, outputPath)
     if (!downloadResult.success && downloadResult.error) {
       return NextResponse.json(
         { error: downloadResult.error || "下载视频失败" },
